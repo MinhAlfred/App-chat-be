@@ -137,7 +137,7 @@ public class AuthController {
     // ==================== ADMIN ====================
 
     @GetMapping("")
-    @PreAuthorize("hasRole('ADMIN')")
+//    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Page<UserResponse>>> getAllUsers(
             @PageableDefault(size = 20) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.success(userService.getAllUsers(pageable)));

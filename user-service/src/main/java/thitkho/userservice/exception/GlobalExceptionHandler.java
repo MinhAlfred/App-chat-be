@@ -2,6 +2,7 @@ package thitkho.userservice.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -37,6 +38,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Object>> handleInvalidFile(InvalidFileException ex) {
         ApiResponse<Object> response = ApiResponse.error(400, "INVALID_FILE", ex.getMessage());
         return ResponseEntity.badRequest().body(response);
+    }
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleAccessDeniedException(AccessDeniedException ex) {
+        ApiResponse<Object> response = new ApiResponse<>();
+        response.setStatus(403);
+        response.setMessage("Access denied: You do not have permission to access this resource.");
+        response.setErrorCode("FORBIDDEN_ACCESS");
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
     }
 
     @ExceptionHandler(Exception.class)

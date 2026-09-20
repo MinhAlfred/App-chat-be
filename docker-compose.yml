@@ -1,4 +1,9 @@
+version: '3.8'
+
 services:
+  # ==========================================
+  # INFRASTRUCTURE SERVICES
+  # ==========================================
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:latest
     container_name: redpanda-tele
@@ -13,14 +18,135 @@ services:
       - "9092:9092"
       - "8082:8082"
       - "8081:8081"
+    networks:
+      - microservice-network
 
   console:
     image: docker.redpanda.com/redpandadata/console:latest
     container_name: redpanda-console-tele
     environment:
-      # Kết nối nội bộ Docker dùng container_name và port 9092
       KAFKA_BROKERS: "redpanda-tele:9092"
     ports:
-      - "8080:8080"
+      - "8088:8080"
     depends_on:
       - redpanda
+    networks:
+      - microservice-network
+
+  redis:
+    image: redis:latest
+    container_name: redis-tele
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    networks:
+      - microservice-network
+
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: postgres-tele
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: microservices_db
+    ports:
+      - "5432:5432"
+    networks:
+      - microservice-network
+
+  # ==========================================
+  # BACKEND MICROSERVICES
+  # ==========================================
+  user-service:
+    build:
+      context: ./user-service
+    container_name: user-service-tele
+    ports:
+      - "4001:4001"
+    environment:
+      - DB_URL=jdbc:postgresql://postgres-db:5432/microservices_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=secret
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-client-id}
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-telegramsecretkey}
+      - SPRING_REDIS_HOST=redis-tele
+      - SPRING_REDIS_PORT=6379
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=redpanda-tele:9092
+    depends_on:
+      - postgres-db
+      - redis
+      - redpanda
+    networks:
+      - microservice-network
+
+  chat-service:
+    build:
+      context: ./chat-service
+    container_name: chat-service-tele
+    ports:
+      - "4000:4000"
+    environment:
+      - DB_URL=jdbc:postgresql://postgres-db:5432/microservices_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=secret
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda-tele:9092
+      - USER_SERVICE_URL=http://user-service:4001 # Ghi đè localhost thành tên container user-service
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-telegramsecretkey}
+    depends_on:
+      - postgres-db
+      - redpanda
+      - user-service
+    networks:
+      - microservice-network
+
+  ws-service:
+    build:
+      context: ./ws-service
+    container_name: ws-service-tele
+    ports:
+      - "4002:4002"
+    environment:
+      - SPRING_DATA_REDIS_HOST=redis-tele # Ghi đè localhost của Redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=redpanda-tele:9092 # Ghi đè localhost của Kafka
+      - CHAT_SERVICE_URL=http://chat-service:4000 # Ghi đè localhost thành tên container chat-service
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-telegramsecretkey}
+    depends_on:
+      - redis
+      - redpanda
+      - chat-service
+    networks:
+      - microservice-network
+
+  # ==========================================
+  # API GATEWAY
+  # ==========================================
+  gateway-service:
+    build:
+      context: ./gateway-service
+    container_name: gateway-service-tele
+    ports:
+      - "3000:3000"
+    environment:
+      - INTERNAL_SECRET=${INTERNAL_SECRET:-telegramsecretkey}
+      - USER_SERVICE_URI=http://user-service:4001
+      - CHAT_SERVICE_URI=http://chat-service:4000
+      - WS_SERVICE_URI_1=http://ws-service:4002
+      - WS_SERVICE_URI_2=http://ws-service:4003
+    depends_on:
+      - user-service
+      - chat-service
+      - ws-service
+    networks:
+      - microservice-network
+
+networks:
+  microservice-network:
+    driver: bridge
